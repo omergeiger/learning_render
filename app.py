@@ -129,7 +129,12 @@ def webhook_verify():
     challenge = request.args.get('hub.challenge')
 
     # Log the verification attempt
-    print(f"Webhook verification attempt: mode={mode}, token_match={token == META_WA_VERIFY_TOKEN}")
+    print(f"Webhook verification attempt:")
+    print(f"  mode={mode}")
+    print(f"  received_token={token}")
+    print(f"  expected_token={META_WA_VERIFY_TOKEN}")
+    print(f"  token_match={token == META_WA_VERIFY_TOKEN}")
+    print(f"  challenge={challenge}")
 
     # Verify the token and mode
     if mode == 'subscribe' and token == META_WA_VERIFY_TOKEN:
@@ -150,7 +155,10 @@ def webhook_message():
     """
     try:
         data = request.json
+        print("=" * 50)
+        print("WEBHOOK RECEIVED!")
         print(f"Received webhook: {data}")
+        print("=" * 50)
 
         # Extract message data from Meta's webhook format
         if 'entry' in data:

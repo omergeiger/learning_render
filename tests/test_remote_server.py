@@ -13,8 +13,8 @@ from datetime import datetime
 
 # Configuration
 SERVER_URL = "https://learning-render-ut2u.onrender.com"
-TIMEOUT = 10  # seconds
-VERIFY_TOKEN = "!QAZxsw2"  # Webhook verify token (safe to hardcode for testing)
+TIMEOUT = 20  # seconds
+VERIFY_TOKEN = "abc123"  # Webhook verify token (safe to hardcode for testing)
 
 
 def print_header(text):
