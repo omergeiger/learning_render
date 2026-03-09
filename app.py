@@ -20,6 +20,10 @@ META_WA_VERIFY_TOKEN = os.getenv('META_WA_VERIFY_TOKEN')
 TEMPLATE_HELLO_WORLD = "hello_world"
 
 
+################################################################################
+# Helper Functions
+################################################################################
+
 def get_git_version():
     """
     Get current git commit information
@@ -131,9 +135,30 @@ def send_whatsapp_message(to_phone_number, message_text=None, template_name=None
             print(f"API error details: {e.response.text}")
         return None
 
+################################################################################
+# API Endpoints
+################################################################################
+
 @app.route('/status', methods=['GET'])
 def status():
-    """Health check endpoint with version info"""
+    """
+    Health check and deployment verification endpoint
+
+    Use Case:
+        - Monitoring: Verify server is running
+        - Deployment verification: Check which git commit is deployed
+        - Called by: Monitoring tools, manual checks, test scripts
+
+    Authentication: None required
+
+    Returns:
+        JSON with status, timestamp, and git version info (commit_id, commit_time, commit_message)
+
+    Example:
+        curl https://learning-render-ut2u.onrender.com/status
+    """
+    print("!!! STATUS GET FUNCTION CALLED !!! status()")
+
     version_info = get_git_version()
     return jsonify({
         'status': 'ok',
@@ -142,32 +167,31 @@ def status():
         'version': version_info
     })
 
-@app.route('/write', methods=['POST'])
-def write():
-    """Echo endpoint - returns input text"""
-    data = request.json
-
-    if not data or 'text' not in data:
-        return jsonify({
-            'error': 'Missing text field in request body'
-        }), 400
-
-    input_text = data['text']
-
-    return jsonify({
-        'echo': input_text,
-        'length': len(input_text),
-        'timestamp': datetime.now(UTC).isoformat()
-    })
-
 
 @app.route('/webhook', methods=['GET'])
 def webhook_verify():
     """
-    Webhook verification endpoint for WhatsApp
-    Meta calls this to verify the webhook URL
+    WhatsApp webhook verification endpoint
+
+    Use Case:
+        - Called by Meta to verify webhook URL ownership during initial setup
+        - Validates META_WA_VERIFY_TOKEN matches the token provided in Meta Developer Console
+        - Returns challenge value to confirm webhook URL is valid
+        - Called once during setup (or when webhook URL changes)
+
+    Authentication: Verify token validation
+
+    Query Parameters:
+        - hub.mode: Should be 'subscribe'
+        - hub.verify_token: Must match META_WA_VERIFY_TOKEN
+        - hub.challenge: Value to return if verification succeeds
+
+    Called by: Meta Developer Console when clicking "Verify and Save"
     """
     # Get parameters from the request
+
+    print("!!! WEBHOOK GET FUNCTION CALLED !!! webhook_verify()")
+
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
@@ -194,16 +218,32 @@ def webhook_verify():
 @app.route('/webhook', methods=['POST'])
 def webhook_message():
     """
-    Webhook endpoint for receiving WhatsApp messages
-    Meta sends incoming messages here
+    WhatsApp incoming message handler
+
+    Use Case:
+        - Receives incoming WhatsApp messages from users
+        - Parses Meta's webhook payload format
+        - Implements echo logic: responds with "Echo: {message}"
+        - Always returns 200 to acknowledge receipt (prevents Meta from retrying)
+
+    Authentication: None (Meta sends to our verified webhook URL)
+
+    Request Format:
+        Meta's webhook format with nested entry/changes/messages structure
+
+    Response:
+        Always returns 200 OK with JSON status
+
+    Called by: Meta's WhatsApp servers when users send messages to business number
+
+    Current Logic:
+        - Extract text messages only
+        - Echo message back to sender with "Echo: " prefix
+        - Ignore non-text messages
     """
-    print("!!! WEBHOOK POST FUNCTION CALLED !!!")
+    print("!!! WEBHOOK POST FUNCTION CALLED !!! webhook_message()")
     try:
         data = request.json
-        print("=" * 50)
-        print("WEBHOOK RECEIVED!")
-        print(f"Received webhook: {data}")
-        print("=" * 50)
 
         # Extract message data from Meta's webhook format
         if 'entry' in data:
