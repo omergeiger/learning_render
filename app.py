@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 import requests
+import subprocess
 from datetime import datetime, UTC
 from dotenv import load_dotenv
 
@@ -17,6 +18,47 @@ META_WA_VERIFY_TOKEN = os.getenv('META_WA_VERIFY_TOKEN')
 
 # WhatsApp Template Names
 TEMPLATE_HELLO_WORLD = "hello_world"
+
+
+def get_git_version():
+    """
+    Get current git commit information
+
+    Returns:
+        dict: Git version info with commit_id, commit_time, commit_message
+    """
+    try:
+        # Get commit hash
+        commit_id = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'],
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8').strip()
+
+        # Get commit timestamp
+        commit_time = subprocess.check_output(
+            ['git', 'log', '-1', '--format=%cI'],
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8').strip()
+
+        # Get commit message
+        commit_message = subprocess.check_output(
+            ['git', 'log', '-1', '--format=%s'],
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8').strip()
+
+        return {
+            'commit_id': commit_id[:7],  # Short hash
+            'commit_id_full': commit_id,
+            'commit_time': commit_time,
+            'commit_message': commit_message
+        }
+    except Exception as e:
+        return {
+            'commit_id': 'unknown',
+            'commit_id_full': 'unknown',
+            'commit_time': 'unknown',
+            'commit_message': f'Error: {str(e)}'
+        }
 
 
 def send_whatsapp_message(to_phone_number, message_text=None, template_name=None, template_language="en_US"):
@@ -91,11 +133,13 @@ def send_whatsapp_message(to_phone_number, message_text=None, template_name=None
 
 @app.route('/status', methods=['GET'])
 def status():
-    """Health check endpoint"""
+    """Health check endpoint with version info"""
+    version_info = get_git_version()
     return jsonify({
         'status': 'ok',
         'timestamp': datetime.now(UTC).isoformat(),
-        'message': 'Server is running'
+        'message': 'Server is running',
+        'version': version_info
     })
 
 @app.route('/write', methods=['POST'])
@@ -153,6 +197,7 @@ def webhook_message():
     Webhook endpoint for receiving WhatsApp messages
     Meta sends incoming messages here
     """
+    print("!!! WEBHOOK POST FUNCTION CALLED !!!")
     try:
         data = request.json
         print("=" * 50)
@@ -194,7 +239,10 @@ def webhook_message():
         return jsonify({'status': 'ok'}), 200
 
     except Exception as e:
+        print("!!! EXCEPTION IN WEBHOOK !!!")
         print(f"Error processing webhook: {e}")
+        import traceback
+        traceback.print_exc()
         # Still return 200 to prevent Meta from retrying
         return jsonify({'status': 'error', 'message': str(e)}), 200
 
