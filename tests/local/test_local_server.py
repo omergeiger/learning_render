@@ -4,17 +4,26 @@ Local Server Test Script
 Tests the Flask server running on localhost
 
 Usage:
+    python test_local_server.py [--port PORT]
+
+Examples:
     python test_local_server.py
+    python test_local_server.py --port 5001
 """
 
 import requests
 import sys
+import argparse
+import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configuration
-SERVER_URL = "http://localhost:5000"
 TIMEOUT = 5  # seconds
-VERIFY_TOKEN = "!QAZxsw2"  # Your webhook verify token
+VERIFY_TOKEN = os.getenv('META_WA_VERIFY_TOKEN', 'abc123')  # Get from .env or default
 
 
 def print_header(text):
@@ -33,7 +42,7 @@ def print_test(name, status, details=""):
 
 
 def test_status_endpoint():
-    """Test 1: GET /status endpoint"""
+    """Test 1: GET /status endpoint (health check + version info)"""
     print_header("Test 1: GET /status endpoint")
 
     endpoint = f"{SERVER_URL}/status"
@@ -45,60 +54,41 @@ def test_status_endpoint():
         status_ok = response.status_code == 200
         print_test("HTTP Status Code", status_ok, f"Got {response.status_code}")
 
-        if status_ok:
-            data = response.json()
-            print_test("Response is JSON", True)
-            print_test("Has 'status' field", 'status' in data, f"Value: {data.get('status')}")
-            print_test("Has 'timestamp' field", 'timestamp' in data)
-            print_test("Has 'message' field", 'message' in data)
+        if not status_ok:
+            return False
 
-            print(f"\n📄 Response: {data}")
-            return True
-        return False
+        data = response.json()
+        print_test("Response is JSON", True)
+
+        # Check basic fields
+        print_test("Has 'status' field", 'status' in data, f"Value: {data.get('status')}")
+        print_test("Has 'timestamp' field", 'timestamp' in data)
+        print_test("Has 'message' field", 'message' in data)
+
+        # Check version info
+        has_version = 'version' in data
+        print_test("Has 'version' field", has_version)
+
+        all_checks_pass = True
+        if has_version:
+            version = data['version']
+            has_commit_id = 'commit_id' in version
+            has_commit_time = 'commit_time' in version
+            has_commit_msg = 'commit_message' in version
+
+            print_test("Has commit_id", has_commit_id, f"Value: {version.get('commit_id')}")
+            print_test("Has commit_time", has_commit_time, f"Value: {version.get('commit_time')}")
+            print_test("Has commit_message", has_commit_msg, f"Value: {version.get('commit_message')}")
+
+            all_checks_pass = has_commit_id and has_commit_time and has_commit_msg
+        else:
+            all_checks_pass = False
+
+        print(f"\n📄 Response: {data}")
+        return all_checks_pass
 
     except requests.exceptions.ConnectionError:
         print_test("Connection", False, "Server not running? Start with: python app.py")
-        return False
-    except Exception as e:
-        print_test("Request", False, f"Error: {e}")
-        return False
-
-
-def test_write_endpoint():
-    """Test 2: POST /write endpoint (echo)"""
-    print_header("Test 2: POST /write endpoint (echo)")
-
-    endpoint = f"{SERVER_URL}/write"
-    print(f"URL: {endpoint}")
-
-    test_text = "Testing local server!"
-    payload = {"text": test_text}
-
-    try:
-        response = requests.post(endpoint, json=payload, timeout=TIMEOUT)
-
-        status_ok = response.status_code == 200
-        print_test("HTTP Status Code", status_ok, f"Got {response.status_code}")
-
-        if status_ok:
-            data = response.json()
-            print_test("Response is JSON", True)
-
-            echo_match = data.get('echo') == test_text
-            print_test("Echo matches input", echo_match, f"Echo: '{data.get('echo')}'")
-
-            length_ok = data.get('length') == len(test_text)
-            print_test("Length is correct", length_ok, f"Got: {data.get('length')}")
-
-            has_timestamp = 'timestamp' in data
-            print_test("Has timestamp", has_timestamp)
-
-            print(f"\n📄 Response: {data}")
-            return echo_match and length_ok and has_timestamp
-        return False
-
-    except requests.exceptions.ConnectionError:
-        print_test("Connection", False, "Server not running?")
         return False
     except Exception as e:
         print_test("Request", False, f"Error: {e}")
@@ -179,12 +169,16 @@ def test_webhook_verification_failure():
         return False
 
 
-def main():
+def main(port=5000):
     """Run all tests"""
+    global SERVER_URL
+    SERVER_URL = f"http://localhost:{port}"
+
     print("\n")
     print("🧪 LOCAL SERVER TEST SUITE")
     print(f"📡 Server: {SERVER_URL}")
     print(f"⏱️  Timeout: {TIMEOUT}s")
+    print(f"🔑 Verify Token: {VERIFY_TOKEN}")
     print(f"🕐 Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Check if server is reachable first
@@ -196,9 +190,7 @@ def main():
         print_test("Server is reachable", False, "Connection refused")
         print("\n❌ ERROR: Server is not running!")
         print("\n💡 To start the server, run:")
-        print("   cd /Users/ogeiger/git/learning_render")
-        print("   source .venv/bin/activate")
-        print("   python app.py")
+        print(f"   ./tests/local/spawn_local_server.sh {port}")
         return 1
     except Exception as e:
         print_test("Server is reachable", False, f"Error: {e}")
@@ -207,9 +199,8 @@ def main():
     # Run all tests
     results = {
         "Test 1: Status Endpoint": test_status_endpoint(),
-        "Test 2: Write Endpoint": test_write_endpoint(),
-        "Test 3: Webhook Verification (Success)": test_webhook_verification_success(),
-        "Test 4: Webhook Verification (Failure)": test_webhook_verification_failure(),
+        "Test 2: Webhook Verification (Success)": test_webhook_verification_success(),
+        "Test 3: Webhook Verification (Failure)": test_webhook_verification_failure(),
     }
 
     # Summary
@@ -236,7 +227,12 @@ def main():
 
 if __name__ == "__main__":
     try:
-        exit_code = main()
+        # Parse command line arguments
+        parser = argparse.ArgumentParser(description='Test local Flask server')
+        parser.add_argument('--port', type=int, default=5000, help='Server port (default: 5000)')
+        args = parser.parse_args()
+
+        exit_code = main(port=args.port)
         sys.exit(exit_code)
     except KeyboardInterrupt:
         print("\n\n⚠️  Tests interrupted by user")

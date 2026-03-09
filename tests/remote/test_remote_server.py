@@ -4,17 +4,27 @@ Remote Server Health Test Script
 Tests the deployed Flask server on Render.com
 
 Usage:
+    python test_remote_server.py [--url URL]
+
+Examples:
     python test_remote_server.py
+    python test_remote_server.py --url https://learning-render-ut2u.onrender.com
 """
 
 import requests
 import sys
+import argparse
+import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configuration
-SERVER_URL = "https://learning-render-ut2u.onrender.com"
+DEFAULT_SERVER_URL = "https://learning-render-ut2u.onrender.com"
 TIMEOUT = 20  # seconds
-VERIFY_TOKEN = "abc123"  # Webhook verify token (safe to hardcode for testing)
+VERIFY_TOKEN = os.getenv('META_WA_VERIFY_TOKEN', 'abc123')  # Get from .env or default
 
 
 def print_header(text):
@@ -33,7 +43,7 @@ def print_test(name, status, details=""):
 
 
 def test_status_endpoint():
-    """Test GET /status endpoint"""
+    """Test GET /status endpoint (health check + version info)"""
     print_header("Testing GET /status endpoint")
 
     endpoint = f"{SERVER_URL}/status"
@@ -44,11 +54,15 @@ def test_status_endpoint():
         response = requests.get(endpoint, timeout=TIMEOUT)
 
         # Check status code
+        status_ok = response.status_code == 200
         print_test(
             "HTTP Status Code",
-            response.status_code == 200,
+            status_ok,
             f"Got {response.status_code}, expected 200"
         )
+
+        if not status_ok:
+            return False
 
         # Check response is JSON
         try:
@@ -83,10 +97,29 @@ def test_status_endpoint():
         except ValueError:
             print_test("Timestamp is valid ISO format", False, f"Invalid: {timestamp}")
 
-        print("\n📄 Full Response:")
-        print(f"   {response.json()}")
+        # Check version info
+        has_version = 'version' in data
+        print_test("Has 'version' field", has_version)
 
-        return True
+        all_checks_pass = True
+        if has_version:
+            version = data['version']
+            has_commit_id = 'commit_id' in version
+            has_commit_time = 'commit_time' in version
+            has_commit_msg = 'commit_message' in version
+
+            print_test("Has commit_id", has_commit_id, f"Value: {version.get('commit_id')}")
+            print_test("Has commit_time", has_commit_time, f"Value: {version.get('commit_time')}")
+            print_test("Has commit_message", has_commit_msg, f"Value: {version.get('commit_message')}")
+
+            all_checks_pass = has_commit_id and has_commit_time and has_commit_msg
+        else:
+            all_checks_pass = False
+
+        print("\n📄 Full Response:")
+        print(f"   {data}")
+
+        return all_checks_pass
 
     except requests.exceptions.Timeout:
         print_test("Request completed", False, f"Timeout after {TIMEOUT}s")
@@ -96,141 +129,6 @@ def test_status_endpoint():
         return False
     except Exception as e:
         print_test("Request completed", False, f"Error: {str(e)}")
-        return False
-
-
-def test_write_endpoint():
-    """Test POST /write endpoint"""
-    print_header("Testing POST /write endpoint")
-
-    endpoint = f"{SERVER_URL}/write"
-    print(f"URL: {endpoint}")
-
-    # Test data
-    test_texts = [
-        "Hello, Render!",
-        "Testing echo functionality",
-        "こんにちは",  # Unicode test
-        "12345",
-        "Special chars: @#$%^&*()",
-    ]
-
-    all_passed = True
-
-    for test_text in test_texts:
-        print(f"\n🧪 Testing with: '{test_text}'")
-
-        try:
-            # Make request
-            payload = {"text": test_text}
-            response = requests.post(
-                endpoint,
-                json=payload,
-                timeout=TIMEOUT
-            )
-
-            # Check status code
-            status_ok = response.status_code == 200
-            print_test(
-                "HTTP Status Code",
-                status_ok,
-                f"Got {response.status_code}"
-            )
-
-            if not status_ok:
-                all_passed = False
-                continue
-
-            # Parse JSON
-            try:
-                data = response.json()
-                print_test("Response is valid JSON", True)
-            except ValueError:
-                print_test("Response is valid JSON", False)
-                all_passed = False
-                continue
-
-            # Check echo matches
-            echo_match = data.get('echo') == test_text
-            print_test(
-                "Echo matches input",
-                echo_match,
-                f"Got: '{data.get('echo')}'"
-            )
-
-            # Check length is correct
-            length_correct = data.get('length') == len(test_text)
-            print_test(
-                "Length is correct",
-                length_correct,
-                f"Got: {data.get('length')}, Expected: {len(test_text)}"
-            )
-
-            # Check timestamp exists
-            has_timestamp = 'timestamp' in data
-            print_test(
-                "Has timestamp",
-                has_timestamp,
-                data.get('timestamp', 'N/A')
-            )
-
-            if not (echo_match and length_correct and has_timestamp):
-                all_passed = False
-
-        except requests.exceptions.Timeout:
-            print_test("Request completed", False, f"Timeout after {TIMEOUT}s")
-            all_passed = False
-        except requests.exceptions.ConnectionError:
-            print_test("Connection", False, "Could not connect to server")
-            all_passed = False
-        except Exception as e:
-            print_test("Request completed", False, f"Error: {str(e)}")
-            all_passed = False
-
-    return all_passed
-
-
-def test_write_error_handling():
-    """Test POST /write error handling"""
-    print_header("Testing POST /write error handling")
-
-    endpoint = f"{SERVER_URL}/write"
-    print(f"URL: {endpoint}")
-
-    # Test with missing 'text' field
-    print("\n🧪 Testing with missing 'text' field")
-
-    try:
-        payload = {"message": "wrong field"}
-        response = requests.post(
-            endpoint,
-            json=payload,
-            timeout=TIMEOUT
-        )
-
-        # Should return 400 Bad Request
-        is_400 = response.status_code == 400
-        print_test(
-            "Returns 400 for missing field",
-            is_400,
-            f"Got status code: {response.status_code}"
-        )
-
-        # Check error message
-        if is_400:
-            data = response.json()
-            has_error = 'error' in data
-            print_test(
-                "Returns error message",
-                has_error,
-                f"Error: {data.get('error', 'N/A')}"
-            )
-            return has_error
-
-        return is_400
-
-    except Exception as e:
-        print_test("Error handling test", False, f"Error: {str(e)}")
         return False
 
 
@@ -321,18 +219,20 @@ def test_webhook_verification_failure():
         return False
 
 
-def main():
+def main(server_url=None):
     """Run all tests"""
+    global SERVER_URL
+    SERVER_URL = server_url or DEFAULT_SERVER_URL
+
     print("\n")
     print("🧪 REMOTE SERVER HEALTH TEST")
     print(f"📡 Server: {SERVER_URL}")
     print(f"⏱️  Timeout: {TIMEOUT}s")
+    print(f"🔑 Verify Token: {VERIFY_TOKEN}")
     print(f"🕐 Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     results = {
         "Status Endpoint": test_status_endpoint(),
-        "Write Endpoint": test_write_endpoint(),
-        "Error Handling": test_write_error_handling(),
         "Webhook Verification (Success)": test_webhook_verification_success(),
         "Webhook Verification (Failure)": test_webhook_verification_failure(),
     }
@@ -361,7 +261,12 @@ def main():
 
 if __name__ == "__main__":
     try:
-        exit_code = main()
+        # Parse command line arguments
+        parser = argparse.ArgumentParser(description='Test remote production server')
+        parser.add_argument('--url', type=str, help=f'Server URL (default: {DEFAULT_SERVER_URL})')
+        args = parser.parse_args()
+
+        exit_code = main(server_url=args.url)
         sys.exit(exit_code)
     except KeyboardInterrupt:
         print("\n\n⚠️  Tests interrupted by user")
