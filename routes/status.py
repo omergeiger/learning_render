@@ -3,7 +3,7 @@ Health check and status endpoints
 """
 from flask import Blueprint, jsonify
 from datetime import datetime, UTC
-from services.version import get_git_version
+from utils.version import get_git_version
 
 status_bp = Blueprint('status', __name__)
 

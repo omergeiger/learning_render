@@ -1,10 +1,9 @@
 """
 WhatsApp webhook endpoints
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 import traceback
 from config import META_WA_VERIFY_TOKEN
-from services.message_handler import process_message
 
 webhook_bp = Blueprint('webhook', __name__)
 
@@ -95,8 +94,8 @@ def webhook_message():
                     # Check if this is a message
                     messages = value.get('messages', [])
                     for message in messages:
-                        # Process each message
-                        process_message(message)
+                        # Process each message using session manager
+                        current_app.session_manager.process_message(message)
 
         # Always return 200 to acknowledge receipt
         return jsonify({'status': 'ok'}), 200
